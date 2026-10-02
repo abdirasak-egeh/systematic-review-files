@@ -1,0 +1,635 @@
+---
+title: "Antiboitic dispensing practices"
+author: "Abdi Egeh"
+date: "`r Sys.Date()`"
+output:
+ html_document:
+    code_download: true 
+    code_folding: show
+    toc: true 
+    toc_float: true 
+    theme: readable 
+    highlight: zenburn
+---
+
+# Loading and libraries
+```{r}
+library("meta")
+library("metafor")
+metdata <- read.csv("metadata.csv")
+View(metdata)
+```
+
+#Transformations
+```{r data.transformations}
+metdata$study_design <- factor(metdata$design,
+                            levels = c(0, 1,2),
+                            labels = c("questionnaire-based", "simulated", "other"))
+
+#region sub groups
+
+metdata$region <- factor(metdata$region,
+                            levels = c(0, 1,2),
+                            labels = c("West Africa", "East Africa", "Southern Africa"))
+
+metdata$country <- factor(metdata$country, 
+                          levels = c(0,1,2,3,4,5,6,7),
+                          labels = c("Ghana","Ethiopia","Kenya","Nigeria",
+                                     "South Africa","Tanzania", "Uganda", "Zambia"))
+
+# the levels represents how the data was entered in the data set fields. I coded the data as the following 
+#0= questionnaire-based data collection method 
+#1= simulated client-based
+#2= other.
+
+metdata$sample.size <- factor(
+  ifelse(metdata$sample <= 86, 0, 1), # this is where the new values are assigned. if the sample size is less than 100, its assigned 0, if not 1.
+  levels = c(0, 1),
+  labels = c("small", "large"))
+
+
+```
+
+# Transformation
+```{r}
+
+ies.da <- escalc(xi = dispevent1, ni = sample , data = metdata , measure = "PFT", add = 0) 
+#xi=number of events, ni=total
+# Individual estimates with double arcsine transformation. This extracts the variance from the two. this is the same as the above 
+
+pes.da <- rma(yi , vi , data = ies.da) # fitting the mixed-effects model here.
+#This is the estimated transformed summary proportion.
+pes <- predict(pes.da , transf = transf.ipft.hm , 
+               targ = list(ni = metdata$sample))
+#back fransformation from arcsine to the original.
+# displays the pooled estimate and its 95% confidence interval
+print(pes.da, digits = 4)
+confint(pes.da, digits =4)
+
+#Testing for heteroginiety in the pooled estimate.
+```
+# Test of moderator analysis
+```{r}
+mod.design <- rma(yi, vi, mods = ~ factor(study_design), data = ies.da)
+mod.design
+
+mod.ssize <- rma(yi, vi, mods = ~ factor(sample.size), data = ies.da)
+mod.ssize
+mod.region <- rma(yi, vi, mods = ~ factor(region), data = ies.da)
+mod.region
+
+```
+
+# Forest plot function (Double arcensine-transformed)
+```{r}
+pes.summary <- metaprop(event = dispevent1,
+                        n = sample,
+                        studlab = Author,
+                        data = metdata,
+                        sm = "PFT",
+                        method.tau = "DL",
+                        method.ci = "NAsm")
+# a meta-analysis of proportions is conducted here.
+```
+
+# Plot visualization (publication-ready)
+
+```{r}
+tiff("forest_plot.tiff", width = 12.5, height = 8, units = "in", res = 300)
+# saving a plot with a better definition in an image form.
+forest(pes.summary,
+       sortvar = 1 / pes.summary$seTE,  # Sort by effect size
+       comb.random = TRUE,        # Random effects model
+       comb.fixed = FALSE,        # Do not show fixed effect
+       print.tau2 = TRUE,
+       print.I2 = TRUE,
+       print.pval.Q = TRUE,
+       print.Q = TRUE,
+       leftcols = c("studlab", "event", "n", "effect", "ci"),
+       leftlabs = c("Study", "Events", "Sample", "Proportion", "95% CI"),
+       smlab = "",                # No summary label
+       xlab = "Prevalence of Inappropriate Antibiotic Dispensing (%)",
+       backtransf = TRUE,         # Show results in original scale (0 to 1)
+       pscale = 100,              # Convert to percentage
+       xlim = c(0, 100),          # X-axis range in %
+       squaresize = 1,          # Increase box size
+       col.square = "navy",
+       col.square.lines = "navy",
+       col.diamond = "darkred",
+       col.diamond.lines = "darkred",
+       col.label.left = "black",
+       col.label.right = "black",
+       fs.study = 11,             # Font size for study labels
+       fs.axis = 11,              # Font size for x-axis
+       fs.hetstat = 9,            # Font size for heterogeneity stats
+       print.subgroup.labels = TRUE,
+       spacing = 1.25)             # Adjust line spacing
+#dev.off()
+
+```
+The results of the forest plot are sorted according to their precision.
+# Identifying outliers (Baujta plot)
+
+```{r}
+tiff("baujat.dispensing.tiff", width = 12.5, height = 8, units = "in", res = 300)
+# Generate the Baujat plot with enhanced visuals
+bjplot <- baujat(pes.summary,
+                 symbol = 19,                   # Solid circle
+                 cex = 1.5,                     # Increase point size
+                 col = "navy",                  # Color for points
+                 xlim = c(0, 15),
+                 ylim = c(0, 0.6),              # Adjust y-axis for space
+                 xlab = "Contribution to Overall Heterogeneity",
+                 ylab = "Influence on Summary Proportion",
+                 main = "Baujat Plot: Influence & Heterogeneity")
+
+# Highlight influential studies
+highlight <- bjplot[bjplot$x >= 10 | bjplot$y >= 0.4, ]
+
+# Add labels to those studies
+text(highlight$x,
+     highlight$y,
+     labels = highlight$slab,
+     pos = 3,                   # Position above point
+     cex = 0.9,                 # Font size
+     col = "darkred",
+     font = 2)    
+
+abline(v = 7.5, lty = 2, col = "gray")   # Vertical line at midpoint of x-axis
+abline(h = 0.3, lty = 2, col = "gray")   # Horizontal line at midpoint of y-axis
+
+# Add quadrant labels
+text(11, 0.45, "Quadrant 2", col = "darkred", cex = 1.2)
+text(11, 0.05, "Quadrant 3", col = "darkred", cex = 1.2)
+text(3, 0.05, "Quadrant 4", col = "darkred", cex = 1.2)
+text(3, 0.45, "Quadrant 1", col = "darkred", cex = 1.2)
+
+# Add a heading label at the top of the plot
+mtext("Proportion of Antibiotics Dispensed Without Prescription", side = 3, line = 2.5, cex = 1.5, font = 2)
+
+dev.off()
+```
+```{r}
+# Generate the Baujat plot
+tiff("baujat2.dispensing.tiff", width = 12.5, height = 8, units = "in", res = 300)
+bjplot <- baujat(pes.summary,
+                 symbol = 19,
+                 cex = 1.5,
+                 col = "navy",
+                 xlim = c(0, 15),
+                 ylim = c(0, 0.6),
+                 xlab = "Contribution to Overall Heterogeneity",
+                 ylab = "Influence on Summary Proportion",
+                 main = "Baujat Plot: Influence & Heterogeneity")
+
+# Add reference lines to divide the plot into quadrants
+
+
+```
+
+# Externally standerized residuals (ESR)
+```{r}
+stud.res <- rstudent(pes.da)
+# Compute influence diagnostics
+
+# Sorting ESR by z-values in descending order 
+# Get absolute studentized residuals
+abs.z <- abs(stud.res$z)
+
+# Order the residuals from largest to smallest
+stud.res[order(-abs.z)]
+inf <- influence(pes.da) 
+print(inf , digits =3)
+```
+# leave-one-out analysis
+```{r}
+tiff("leav1out.tiff", width = 12.5, height = 8, units = "in", res = 300)
+l1o <- leave1out(pes.da)
+yi <- l1o$estimate; vi <- l1o$se^2 
+forest(yi , vi , transf = transf.ipft.hm , 
+       targ = list(ni = metdata$sample), 
+       slab = paste(metdata$Author , sep = ","), 
+       refline = pes$pred , xlab = "Leave -one -out summary proportions ")
+dev.off()
+
+ # None detected by the test 
+```
+
+# Sub group analysis (meta regresion) defining the column
+
+```{r}
+
+pes.da.subgroup1 <- rma(yi ,vi ,data = ies.da,
+                     subset = study_design == "questionnaire-based")
+pes.da.subgroup2 <- rma(yi ,vi ,data = ies.da, 
+                     subset = study_design == "simulated")
+pes.da.subgroup3 <- rma(yi ,vi ,data = ies.da,
+                     subset = study_design == "other")
+pes.subgroup1 <- predict(pes.da.subgroup1, 
+                         transf = transf.ipft.hm ,
+                         targ = list(ni = metdata$sample))
+pes.subgroup2 <- predict(pes.da.subgroup2, 
+                         transf = transf.ipft.hm ,
+                         targ = list(ni = metdata$sample))
+pes.subgroup3 <- predict(pes.da.subgroup3, 
+                         transf = transf.ipft.hm ,
+                         targ = list(ni = metdata$sample))
+
+# dataframe that stores the effect size estimates 
+dat.diffvar <- data.frame(estimate = c(pes.da.subgroup1$b,
+                                       pes.da.subgroup2$b,
+                                       pes.da.subgroup3$b),
+                          stderror = c(pes.da.subgroup1$se ,
+                                       pes.da.subgroup2$se,
+                                       pes.da.subgroup3$se), 
+                          study_design = c("questionnaire-based", "simulated", "other"), 
+                          tau2 = round(c(pes.da.subgroup1$tau2 ,
+                                         pes.da.subgroup2$tau2,
+                                         pes.da.subgroup3$tau2), 3))
+#Fitting a mixed effects regresion to compare the two sub groups
+subganal.moderator <- rma(estimate , sei = stderror , 
+                          mods = ~ study_design , method = "FE", 
+                          data = dat.diffvar)
+#Recalculate summary effect size assuming different # heterogeneity components
+pes.da.moderator <- rma(estimate , sei = stderror , 
+                        method = "FE", data = dat.diffvar)
+pes.moderator <- predict(pes.da.moderator , transf = transf.ipft.hm , 
+                         targ = list(ni = metdata$sample))
+
+```
+
+#Displaying the results of the subgroup analysis
+```{r}
+#Subrgoup1 analysis
+print(pes.subgroup1); print(pes.da.subgroup1)
+#subgroup2 analysis
+print(pes.subgroup2); print(pes.da.subgroup2)
+print(pes.subgroup3); print(pes.da.subgroup3)
+# Display subgroup analysis results 
+print(subganal.moderator) 
+# Display recomputed summary effect size
+print(pes.moderator)
+
+```
+# Explanation
+
+```{r}
+subganal.studydesign <- rma(yi , vi , data = ies.da, 
+                            mods = ~ study_design , method = "DL")
+
+pes.summary <- metaprop(dispevent1 , sample , Author,
+                        data = metdata , sm = "PLO", method.tau = "DL", 
+                        method.ci ="NAsm",
+                        byvar = study_design , tau.common=TRUE ,
+                        tau.preset = sqrt(subganal.studydesign$tau2))
+tiff("dispen_subgroupforestplott.tiff", width = 10, height = 10, units = "in", res = 300)
+forest(pes.summary , 
+       common = FALSE ,
+       overall = TRUE , 
+       overall.hetstat = TRUE , 
+       resid.hetstat = FALSE , 
+       subgroup.hetstat = TRUE , 
+       test.subgroup = FALSE , 
+       fs.hetstat = 10,
+       print.tau2 = TRUE ,
+       print.Q = TRUE , 
+       print.pval.Q = TRUE , 
+       print.I2 = TRUE , 
+       rightcols = FALSE , 
+       xlim = c(0 ,1),
+       leftcols = c("studlab", "effect", "ci"), 
+       leftlabs = c("Study", "Proportion", "95% C.I."), 
+       text.random.w = "Subgroup proportion", 
+       text.random = "Overall proportion", 
+       xlab = "Prevalence of CC (%)", 
+       pscale = 1, 
+       smlab = " ", 
+       weight.study = "random", 
+       squaresize = 0.5, 
+       col.square = "navy", 
+       col.diamond = "maroon",
+       col.diamond.lines = "maroon", 
+       digits = 3,  
+       spacing = 1.3)
+dev.off()
+```
+#Tabulating the results
+
+```{r}
+# Inverse logit function
+inv_logit <- function(x) {
+  exp(x) / (1 + exp(x))
+}
+
+# Study-level results with back-transformation
+study_results <- data.frame(
+  Study = pes.summary$studlab,
+  Proportion = round(inv_logit(pes.summary$TE), 3),
+  CI_Lower = round(inv_logit(pes.summary$lower), 3),
+  CI_Upper = round(inv_logit(pes.summary$upper), 3),
+  Study_Design = pes.summary$byvar,
+  Weight = round(pes.summary$w.random, 2)
+)
+
+# Subgroup-level summary with back-transformation
+subgroup_summary <- data.frame(
+  Study_Design = levels(pes.summary$byvar),
+  Subgroup_Proportion = round(inv_logit(pes.summary$TE.random.w), 3),
+  CI_Lower = round(inv_logit(pes.summary$lower.random.w), 3),
+  CI_Upper = round(inv_logit(pes.summary$upper.random.w), 3),
+  Tau2 = round(pes.summary$tau2.w, 3),
+  I2 = round(pes.summary$I2.w, 1)
+)
+
+# Print results
+print("Study-Level Results")
+print(study_results)
+
+print("Subgroup Summary")
+print(subgroup_summary)
+
+
+```
+
+
+
+# Sample size moderator variable 
+```{r}
+pes.da.small <- rma(yi ,vi ,data = ies.da,
+                     subset = sample.size == "small")
+pes.da.large <- rma(yi ,vi ,data = ies.da, 
+                     subset = sample.size == "large")
+pes.small <- predict(pes.da.small, 
+                         transf = transf.ipft.hm ,
+                         targ = list(ni = metdata$sample))
+pes.large <- predict(pes.da.large, 
+                         transf = transf.ipft.hm ,
+                         targ = list(ni = metdata$sample))
+
+#Data
+dat.diffvar <- data.frame(estimate = c(pes.da.small$b,
+                                       pes.da.large$b),
+                          stderror = c(pes.da.small$se ,
+                                       pes.da.large$se), 
+                          moderator = c("small", "large"), 
+                          tau2 = round(c(pes.da.small$tau2 ,
+                                         pes.da.large$tau2), 3))
+
+#Fix effects model
+
+subganal.moderator <- rma(estimate , sei = stderror , 
+                          mods = ~ moderator , method = "FE", 
+                          data = dat.diffvar)
+
+pes.da.moderator <- rma(estimate , sei = stderror , 
+                        method = "FE", data = dat.diffvar)
+pes.moderator <- predict(pes.da.moderator , transf = transf.ipft.hm , 
+                         targ = list(ni = metdata$sample))
+
+
+
+#Subrgoup1 analysis
+print(pes.small); print(pes.da.small)
+#subgroup2 analysis
+print(pes.large); print(pes.da.large)
+# Display subgroup analysis results 
+print(subganal.moderator) 
+# Display recomputed summary effect size
+print(pes.moderator)
+```
+
+#region sub groups
+```{r}
+
+pes.da.subgroup1 <- rma(yi ,vi ,data = ies.da,
+                     subset = region == "West Africa")
+pes.da.subgroup2 <- rma(yi ,vi ,data = ies.da, 
+                     subset = region == "East Africa")
+pes.da.subgroup3 <- rma(yi ,vi ,data = ies.da,
+                     subset = region == "Southern Africa")
+pes.subgroup1 <- predict(pes.da.subgroup1, 
+                         transf = transf.ipft.hm ,
+                         targ = list(ni = metdata$sample))
+pes.subgroup2 <- predict(pes.da.subgroup2, 
+                         transf = transf.ipft.hm ,
+                         targ = list(ni = metdata$sample))
+pes.subgroup3 <- predict(pes.da.subgroup3, 
+                         transf = transf.ipft.hm ,
+                         targ = list(ni = metdata$sample))
+
+# dataframe that stores the effect size estimates 
+dat.diffvar <- data.frame(estimate = c(pes.da.subgroup1$b,
+                                       pes.da.subgroup2$b,
+                                       pes.da.subgroup3$b),
+                          stderror = c(pes.da.subgroup1$se ,
+                                       pes.da.subgroup2$se,
+                                       pes.da.subgroup3$se), 
+                          region = c("West Africa", "East Africa", "Southern Africa"), 
+                          tau2 = round(c(pes.da.subgroup1$tau2 ,
+                                         pes.da.subgroup2$tau2,
+                                         pes.da.subgroup3$tau2), 3))
+#Fitting a mixed effects regresion to compare the two sub groups
+subganal.moderator <- rma(estimate , sei = stderror , 
+                          mods = ~ region , method = "FE", 
+                          data = dat.diffvar)
+#Recalculate summary effect size assuming different # heterogeneity components
+pes.da.moderator <- rma(estimate , sei = stderror , 
+                        method = "FE", data = dat.diffvar)
+pes.moderator <- predict(pes.da.moderator , transf = transf.ipft.hm , 
+                         targ = list(ni = metdata$sample))
+```
+
+# region results display
+```{r}
+#Subrgoup1 analysis
+print(pes.subgroup1); print(pes.da.subgroup1)
+#subgroup2 analysis
+print(pes.subgroup2); print(pes.da.subgroup2)
+print(pes.subgroup3); print(pes.da.subgroup3)
+# Display subgroup analysis results 
+print(subganal.moderator) 
+# Display recomputed summary effect size
+print(pes.moderator)
+```
+
+#country subgroups
+
+```{r}
+pes.da.ghana <- rma(yi ,vi ,data = ies.da,
+                     subset = country == "Ghana")
+pes.da.ethiopia <- rma(yi ,vi ,data = ies.da, 
+                     subset = country == "Ethiopia")
+pes.da.kenya <- rma(yi ,vi ,data = ies.da,
+                     subset = country == "Kenya")
+pes.da.nigeria <- rma(yi ,vi ,data = ies.da,
+                     subset = country == "Nigeria")
+pes.da.southA <- rma(yi ,vi ,data = ies.da,
+                     subset = country == "South Africa")
+pes.da.tanzania <- rma(yi ,vi ,data = ies.da,
+                     subset = country == "Tanzania")
+pes.da.uganda <- rma(yi ,vi ,data = ies.da,
+                     subset = country == "Uganda")
+pes.da.zambia <- rma(yi ,vi ,data = ies.da,
+                     subset = country == "Zambia")
+pes.ghana <- predict(pes.da.ghana, 
+                         transf = transf.ipft.hm ,
+                         targ = list(ni = metdata$sample))
+pes.ethiopia <- predict(pes.da.ethiopia, 
+                         transf = transf.ipft.hm ,
+                         targ = list(ni = metdata$sample))
+pes.kenya <- predict(pes.da.kenya, 
+                         transf = transf.ipft.hm ,
+                         targ = list(ni = metdata$sample))
+pes.nigeria <- predict(pes.da.nigeria, 
+                         transf = transf.ipft.hm ,
+                         targ = list(ni = metdata$sample))
+pes.southA <- predict(pes.da.southA, 
+                         transf = transf.ipft.hm ,
+                         targ = list(ni = metdata$sample))
+pes.tanzania <- predict(pes.da.tanzania, 
+                         transf = transf.ipft.hm ,
+                         targ = list(ni = metdata$sample))
+pes.uganda <- predict(pes.da.uganda, 
+                         transf = transf.ipft.hm ,
+                         targ = list(ni = metdata$sample))
+pes.zambia <- predict(pes.da.zambia, 
+                         transf = transf.ipft.hm ,
+                         targ = list(ni = metdata$sample))
+
+# Data frame
+dat.country <- data.frame(estimate = c(pes.da.ghana$b,
+                                       pes.da.ethiopia$b,
+                                       pes.da.kenya$b,
+                                       pes.da.nigeria$b,
+                                       pes.da.southA$b,
+                                       pes.da.tanzania$b,
+                                       pes.da.uganda$b,
+                                       pes.da.zambia$b),
+                          stderror = c(pes.da.ghana$se ,
+                                       pes.da.ethiopia$se,
+                                       pes.da.kenya$se,
+                                       pes.da.nigeria$se ,
+                                       pes.da.southA$se,
+                                       pes.da.tanzania$se,
+                                       pes.da.uganda$se,
+                                       pes.da.zambia$se), 
+                          country = c("Ghana","Ethiopia","Kenya","Nigeria",
+                                     "South Africa","Tanzania", "Uganda", "Zambia"), 
+                          tau2 = round(c(pes.da.ghana$tau2 ,
+                                         pes.da.ethiopia$tau2,
+                                         pes.da.kenya$tau2,
+                                         pes.da.nigeria$tau2 ,
+                                         pes.da.southA$tau2,
+                                         pes.da.tanzania$tau2,
+                                         pes.da.uganda$tau2,
+                                         pes.da.zambia$tau2), 3))
+#Sub group analysis
+subganal.moderator.country <- rma(estimate , sei = stderror , 
+                          mods = ~ country , method = "FE", 
+                          data = dat.country)
+#Recalculate summary effect size assuming different # heterogeneity components
+pes.da.moderator.country <- rma(estimate , sei = stderror , 
+                        method = "FE", data = dat.country)
+pes.moderator.country <- predict(pes.da.moderator.country , transf = transf.ipft.hm , 
+                         targ = list(ni = metdata$sample))
+```
+
+# Print sub country analysis
+
+```{r}
+print(subganal.moderator.country) 
+# Display recomputed summary effect size
+print(pes.moderator.country)
+```
+
+
+
+
+# sub region plot 
+
+```{r}
+subganal.studydesign <- rma(yi , vi , data = ies.da, 
+                            mods = ~ region , method = "DL")
+
+pes.summary <- metaprop(dispevent1 , sample , Author,
+                        data = metdata , sm = "PLO", method.tau = "DL", 
+                        method.ci ="NAsm",
+                        byvar = region , tau.common=TRUE ,
+                        tau.preset = sqrt(subganal.studydesign$tau2))
+tiff("dispen_regions.tiff", width = 10, height = 10, units = "in", res = 300)
+forest(pes.summary , 
+       common = FALSE ,
+       overall = TRUE , 
+       overall.hetstat = TRUE , 
+       resid.hetstat = FALSE , 
+       subgroup.hetstat = TRUE , 
+       test.subgroup = FALSE , 
+       fs.hetstat = 11,
+       print.tau2 = TRUE ,
+       backtransf = TRUE ,
+       print.Q = TRUE , 
+       print.pval.Q = TRUE , 
+       print.I2 = TRUE , 
+       rightcols = FALSE , 
+       xlim = c(0 ,1),
+       leftcols = c("studlab",  "effect",  "ci"), 
+       leftlabs = c("Study",  "Proportion",  "95% C.I."), 
+       text.random.w = "Subgroup proportion", 
+       text.random = "Overall proportion", 
+       xlab = "", 
+       pscale = 1, 
+       smlab = " ", 
+       weight.study = "random", 
+       squaresize = 0.5, 
+       col.square = "black", 
+       col.diamond = "red",
+       col.diamond.lines = "red", 
+       digits = 2,  
+       spacing = 1.3)
+dev.off()
+```
+
+# Plot- subgroup country 
+
+```{r}
+subganal.country <- rma(yi , vi , data = ies.da, 
+                            mods = ~ country , method = "DL")
+
+pes.summary.country <- metaprop(dispevent1 , sample , Author,
+                        data = metdata , sm = "PLO", method.tau = "DL", 
+                        method.ci ="NAsm",
+                        byvar = country , tau.common=TRUE ,
+                        tau.preset = sqrt(subganal.country$tau2))
+tiff("dispen_country.tiff", width = 10, height = 11.5, units = "in", res = 300)
+forest(pes.summary.country , 
+       common = FALSE ,
+       overall = FALSE , 
+       overall.hetstat = FALSE , 
+       resid.hetstat = FALSE , 
+       subgroup.hetstat = TRUE , 
+       test.subgroup = FALSE , 
+       fs.hetstat = 11,
+       print.tau2 = TRUE ,
+       backtransf = TRUE ,
+       print.Q = TRUE , 
+       print.pval.Q = TRUE , 
+       print.I2 = TRUE , 
+       rightcols = FALSE , 
+       xlim = c(0 ,1),
+       leftcols = c("studlab",  "effect",  "ci"), 
+       leftlabs = c("Study",  "Proportion",  "95% C.I."), 
+       text.random.w = "Subgroup proportion", 
+       text.random = "Overall proportion", 
+       xlab = "% of antibiotics dispensed without prescription", 
+       pscale = 1, 
+       smlab = " ", 
+       weight.study = "random", 
+       squaresize = 0.5, 
+       col.square = "black", 
+       col.diamond = "black",
+       col.diamond.lines = "black", 
+       digits = 2,  
+       spacing = 1.1)
+dev.off()
+```
+
